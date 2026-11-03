@@ -1,0 +1,151 @@
+{
+  "name": "Vector search",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "query"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "933004c4-87e9-4cf5-aeb9-6f165a0c4e43",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/embed",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"nomic-embed-text\", input: $('When Executed by Another Workflow').item.json.query }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        176,
+        0
+      ],
+      "id": "fae6e4bf-e979-4d02-bf00-c4e0feba8ddf",
+      "name": "Embed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7474/db/neo4j/query/v2",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  statement: \"CALL db.index.vector.queryNodes('chunk_embeddings', 5, $embedding) YIELD node, score MATCH (node)-[:PART_OF]->(r:Recipe) OPTIONAL MATCH (r)-[:FROM_CUISINE]->(cu) OPTIONAL MATCH (r)-[:IN_CATEGORY]->(cat) RETURN r.name AS recipe, cat.name AS category, cu.name AS cuisine, node.text AS text, r.source AS source, round(score, 3) AS score\",\n  parameters: { embedding: $json.embeddings[0] }\n}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        384,
+        0
+      ],
+      "id": "96ec67bc-37be-4177-a0ae-22a9bf4be7f9",
+      "name": "Søg i Neo4j",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "jeGFJrOxbc6eG5aI",
+          "name": "Neo4j"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "   const { fields, values } = $input.first().json.data;\n   const results = values.map(row => Object.fromEntries(fields.map((f, i) => [f, row[i]])));\n   return [{ json: { results } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        0
+      ],
+      "id": "e1891961-cec9-42fa-b78a-3e24bddb25af",
+      "name": "Formater"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "query": "something sweet with fruit"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Embed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed": {
+      "main": [
+        [
+          {
+            "node": "Søg i Neo4j",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Søg i Neo4j": {
+      "main": [
+        [
+          {
+            "node": "Formater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "7c55a494-b000-4740-803e-bd8e39140294",
+  "meta": {
+    "instanceId": "e77a19f4d8b013963aa013cfdaa833ae5f2d1d93d5929ed5d53015f08c9f9a3e"
+  },
+  "nodeGroups": [],
+  "id": "gmntITa6AznRMayb",
+  "tags": []
+}

@@ -1,0 +1,13 @@
+Agent: Recipe Agent
+Built with: n8n Agents builder (self-hosted n8n, updated from 2.36.9 to latest)
+
+Model provider: OpenAI
+Model: gpt-4o-mini
+Credential: OpenAI API key (n8n credential, not included in this submission)
+
+Tools:
+- vector_search -> workflow "Vector search"
+- graph_search  -> workflow "Graph search"
+
+Embedding model (used inside the tools, not by the agent): Ollama nomic-embed-text, 768 dimensions
+Memory: default conversation context in the Agents builder

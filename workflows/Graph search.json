@@ -1,0 +1,123 @@
+{
+  "name": "Graph search",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ingredients"
+            },
+            {
+              "name": "cuisine"
+            },
+            {
+              "name": "category"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8ad76c84-7789-4e72-8803-c2a8d1ae8969",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7474/db/neo4j/query/v2",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  statement: \"MATCH (r:Recipe)-[:FROM_CUISINE]->(cu:Cuisine), (r)-[:IN_CATEGORY]->(cat:Category) WHERE ($cuisine = '' OR toLower(cu.name) = toLower($cuisine)) AND ($category = '' OR toLower(cat.name) = toLower($category)) OPTIONAL MATCH (r)-[h:HAS_INGREDIENT]->(i:Ingredient) WITH r, cu, cat, collect(i.name) AS ingredients, collect(i.name + ' (' + h.measure + ')') AS withMeasures WHERE all(x IN $ingredients WHERE any(y IN ingredients WHERE y CONTAINS x)) RETURN r.name AS recipe, cat.name AS category, cu.name AS cuisine, withMeasures AS ingredients, r.source AS source LIMIT 10\",\n  parameters: {\n    ingredients: ($json.ingredients || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),\n    cuisine: $json.cuisine || '',\n    category: $json.category || ''\n  }\n}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        256,
+        -16
+      ],
+      "id": "eda52aa9-83ab-49da-81fe-56d40e273b4f",
+      "name": "Søg i Neo4j",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "jeGFJrOxbc6eG5aI",
+          "name": "Neo4j"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "   const { fields, values } = $input.first().json.data;\n   const results = values.map(row => Object.fromEntries(fields.map((f, i) => [f, row[i]])));\n   return [{ json: { results } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0d07f91d-37dd-4af6-b0c9-8c3d4a93c037",
+      "name": "Formater"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "ingredients": "garlic",
+          "cuisine": "",
+          "category": ""
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Søg i Neo4j",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Søg i Neo4j": {
+      "main": [
+        [
+          {
+            "node": "Formater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "97667686-8423-4f34-ba45-e7b197b72cd9",
+  "meta": {
+    "instanceId": "e77a19f4d8b013963aa013cfdaa833ae5f2d1d93d5929ed5d53015f08c9f9a3e"
+  },
+  "nodeGroups": [],
+  "id": "yTIy39MCAJMbIOL8",
+  "tags": []
+}

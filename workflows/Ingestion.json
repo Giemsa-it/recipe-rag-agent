@@ -1,0 +1,229 @@
+{
+  "name": "Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e2298cab-0eff-4564-aa6b-4014f18365b9",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://www.themealdb.com/api/json/v1/1/search.php?f=a",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "59d430a2-245a-4098-9154-d83e8680a5ae",
+      "name": "Hent opskrifter"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "meals",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "174b4cd3-70d6-41a9-9b9e-73924c52780a",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "const graphStatement = `\nMERGE (r:Recipe {id: $id}) SET r.name = $name, r.source = $source\nMERGE (cat:Category {name: $category}) MERGE (r)-[:IN_CATEGORY]->(cat)\nMERGE (cu:Cuisine {name: $cuisine}) MERGE (r)-[:FROM_CUISINE]->(cu)\nWITH r\nUNWIND $ingredients AS ing\nMERGE (i:Ingredient {name: ing.name})\nMERGE (r)-[h:HAS_INGREDIENT]->(i) SET h.measure = ing.measure\nWITH DISTINCT r\nUNWIND $tags AS t\nMERGE (tag:Tag {name: t}) MERGE (r)-[:HAS_TAG]->(tag)`;\n\nreturn $input.all().map(item => {\n  const m = item.json;\n  const ingredients = [];\n  for (let i = 1; i <= 20; i++) {\n    const name = (m[`strIngredient${i}`] || '').trim().toLowerCase();\n    const measure = (m[`strMeasure${i}`] || '').trim();\n    if (name) ingredients.push({ name, measure });\n  }\n  const tags = (m.strTags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);\n  const data = {\n    id: m.idMeal,\n    name: m.strMeal || 'Unknown',\n    category: m.strCategory || 'Unknown',\n          cuisine: m.strArea || m.strCountry || 'Unknown',\n    tags,\n    ingredients,\n    source: `https://www.themealdb.com/meal/${m.idMeal}`,\n  };\n  const text = `${data.name}. ${data.category} dish from ${data.cuisine} cuisine. ` +\n               `Ingredients: ${ingredients.map(i => i.name).join(', ')}. ` +\n               `Instructions: ${m.strInstructions || ''}`;\n  return { json: { ...data, text, graphBody: { statement: graphStatement, parameters: data } } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "8f1f60d5-60c6-48f9-a546-50a1d690f1ce",
+      "name": "Normaliser"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7474/db/neo4j/query/v2",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=   {{ JSON.stringify($('Normaliser').item.json.graphBody) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        0
+      ],
+      "id": "8927ad84-23e7-44dc-8f7a-6f20c6b76b0f",
+      "name": "Gem graf",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "jeGFJrOxbc6eG5aI",
+          "name": "Neo4j"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/embed",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=   {{ JSON.stringify({ model: \"nomic-embed-text\", input: $('Normaliser').item.json.text }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "ad86b8f4-ab5e-4a31-90a2-c768f2f6b9a7",
+      "name": "Embed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:7474/db/neo4j/query/v2",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=  {{ JSON.stringify({\n    statement: \"MATCH (r:Recipe {id: $id}) MERGE (c:Chunk {id: $id + '-0'}) SET c.text = $text, c.source = $source, c.embedding = $embedding MERGE (c)-[:PART_OF]->(r)\",\n    parameters: {\n      id: $('Normaliser').item.json.id,\n      text: $('Normaliser').item.json.text,\n      source: $('Normaliser').item.json.source,\n      embedding: $json.embeddings[0]\n    }\n  }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "bbce7b95-41ad-41eb-86e5-7cf1cdfec7c4",
+      "name": "Gem chunk",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "jeGFJrOxbc6eG5aI",
+          "name": "Neo4j"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Hent opskrifter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hent opskrifter": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Normaliser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliser": {
+      "main": [
+        [
+          {
+            "node": "Gem graf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gem graf": {
+      "main": [
+        [
+          {
+            "node": "Embed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed": {
+      "main": [
+        [
+          {
+            "node": "Gem chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3f87e0e6-37cb-43e5-8b03-26b205727a12",
+  "meta": {
+    "instanceId": "e77a19f4d8b013963aa013cfdaa833ae5f2d1d93d5929ed5d53015f08c9f9a3e"
+  },
+  "nodeGroups": [],
+  "id": "irNeC3uN1FLbCLb1",
+  "tags": []
+}

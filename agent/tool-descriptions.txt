@@ -1,0 +1,36 @@
+TOOL 1: vector_search
+Workflow: workflows/Vector search.json
+
+Description (paste into the tool's description field):
+Semantic search over the full text of every recipe (name, category, cuisine, ingredients and instructions). Use it for descriptive or vague questions where meaning matters more than exact words, e.g. "something sweet with fruit", "a quick and creamy dinner", "spicy seafood". Input: query (string) - a short description of what the user wants, written in English. Returns the 5 most similar recipes, each with recipe, category, cuisine, text (the full recipe), source (link) and score (cosine similarity, higher is better).
+
+Inputs:
+- query (string, required): short English description of the dish the user is looking for.
+
+How it works:
+Embeds the query with Ollama nomic-embed-text (768 dimensions) and runs db.index.vector.queryNodes on the chunk_embeddings index in Neo4j. Each Chunk is followed via PART_OF to its Recipe to add name, category, cuisine and source.
+
+When to use: descriptions, moods, textures, "something like X".
+When not to use: exact filters on ingredients, cuisine or category (use graph_search).
+
+
+TOOL 2: graph_search
+Workflow: workflows/Graph search.json
+
+Description (paste into the tool's description field):
+Exact structured search in the recipe graph. Use it when the user names concrete ingredients, a cuisine or a category, e.g. "recipes with garlic and chicken", "Spanish dishes", "vegetarian desserts". IMPORTANT: the database is in English, so all inputs must be in English - translate Danish words first (hvidløg -> garlic, kylling -> chicken). Inputs: ingredients_english (comma-separated English ingredient names; every ingredient must be in the recipe; partial words match, so "onion" also finds "red onions"), cuisine (one of: Albania, Algerian, Antigua and Barbuda, Argentina, Aruba, Australian, Brazil, British, Cambodia, Chinese, Colombia, Dominica, Estonia, Laos, Malaysian, Netherlands, Norway, Spanish, Turkish, Venezuela), category (one of Miscellaneous, Starter, Seafood, Dessert, Side, Beef, Vegetarian, Lamb, Breakfast, Pork, Chicken). Use an empty string for any input that is not needed. Returns up to 10 recipes with recipe, category, cuisine, the full ingredient list with amounts, and source (link).
+
+Inputs:
+- ingredients_english (string, optional): comma-separated, lowercase ENGLISH names, e.g. "garlic, chicken". Always translate Danish first (hvidløg -> garlic). Empty string if not used.
+  Field description in n8n: MUST be English. Comma-separated lowercase English ingredient names that must all be in the recipe, e.g. "garlic, chicken". Translate Danish first: hvidløg -> garlic, kylling -> chicken, løg -> onion. Empty string if the user named no ingredients.
+- cuisine (string, optional): one of Albania, Algerian, Antigua and Barbuda, Argentina, Aruba, Australian, Brazil, British, Cambodia, Chinese, Colombia, Dominica, Estonia, Laos, Malaysian, Netherlands, Norway, Spanish, Turkish, Venezuela. Case-insensitive exact match. Empty string if not used.
+- category (string, optional): one of the 11 categories above. Case-insensitive exact match. Empty string if not used.
+
+How it works:
+Runs a parameterised Cypher query: (Recipe)-[:FROM_CUISINE]->(Cuisine), (Recipe)-[:IN_CATEGORY]->(Category), (Recipe)-[:HAS_INGREDIENT {measure}]->(Ingredient). Filters on cuisine and category, then keeps recipes where every requested ingredient is contained in one of the recipe's ingredient names. The agent never writes Cypher itself, which keeps the tool safe and predictable.
+
+When to use: concrete ingredients, cuisine or category.
+When not to use: vague descriptions (use vector_search).
+
+Note on the field name:
+The input was first called "ingredients". In testing, gpt-4o-mini sent the Danish word "hvidløg" even though the instructions and field description said to translate to English, so the search returned nothing. Renaming the field to "ingredients_english" makes the requirement part of the schema itself, which the model follows more reliably than prose instructions.

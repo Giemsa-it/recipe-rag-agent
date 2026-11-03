@@ -1,0 +1,59 @@
+Prompts og iterationer brugt under udviklingen af Recipe Agent
+==============================================================
+
+1. Testspørgsmål brugt i Preview / n8n Chat
+-------------------------------------------
+- "hej"                                             (tjek af at agenten svarer og holder sig til emnet)
+- "Jeg har lyst til noget sødt med frugt"           (forventet: vector_search)
+- "Hvilke retter kan jeg lave med hvidløg?"         (forventet: graph_search med "garlic")
+- "Jeg vil have noget let og friskt med lime"       (forventet: begge tools)
+
+Manuelle tests af tool-workflows (mock data på triggeren):
+- Vector search: {"query": "something sweet with fruit"}  -> top: Apple Pie (Dessert)
+- Graph search:  {"ingredients": "garlic", "cuisine": "", "category": ""}
+
+
+2. Iterationer af instruktioner og tools
+----------------------------------------
+v1  Instruktioner med rolle, tool-valg, kategorier, køkkener og guardrails
+    (se instructions.txt). Regel 6 lød:
+      'Tool inputs must be in English (the data is in English). Translate the
+       user's words, e.g. "hvidløg" -> "garlic", "kylling" -> "chicken".'
+    Resultat: "sødt med frugt" virkede. "hvidløg" fejlede: agenten sendte
+    {"ingredients": "hvidløg"} og fik 0 resultater.
+
+v2  Regel 6 skærpet til:
+      'ALL tool inputs MUST be in English, because every ingredient, cuisine and
+       category in the database is stored in English. Before calling a tool,
+       always translate Danish words: "hvidløg" -> "garlic", ... Never send a
+       Danish word to a tool.'
+    + feltbeskrivelse for ingredients: 'MUST be English. ... Translate Danish
+      first: hvidløg -> garlic ...'
+    Resultat: Stadig {"ingredients": "hvidløg"}, 0 resultater.
+
+v3  Feltet omdøbt i Graph search-workflowet: ingredients -> ingredients_english.
+    Tool fjernet og tilføjet igen i agenten, så det nye schema kom med.
+    Tool-beskrivelsen fik: 'IMPORTANT: the database is in English, so all inputs
+    must be in English - translate Danish words first'.
+    Resultat: {"ingredients_english": "garlic"} -> Ajo blanco, Acaraje,
+    Algerian Bouzgene Berber Bread m.fl. Virker.
+
+v3 test af hybrid: "noget let og friskt med lime"
+    -> graph_search {"ingredients_english": "lime"} + vector_search
+       {"query": "light and fresh with lime"}. Agenten kombinerer resultaterne.
+
+
+3. Prompts brugt til at bygge løsningen (med AI-assistent, Claude)
+------------------------------------------------------------------
+- "Hvordan kommer jeg i gang med basisløsningen?"
+- "Okay vi tager udgangspunkt i opskrifter, hvordan starter jeg"
+- AI foreslog grafmodellen (Recipe, Ingredient, Category, Cuisine, Tag, Chunk)
+  ud fra TheMealDB's felter; vi normaliserede ingrediens- og tagnavne til små
+  bogstaver og valgte én chunk pr. opskrift.
+- AI genererede Cypher til import (MERGE), vektorindeks og de to
+  retrieval-queries, samt JavaScript til Normaliser- og Formater-noderne.
+- Fejl fundet og rettet undervejs med AI:
+  * null i strArea -> "Unknown" og senere fallback til strCountry
+  * deadlock ved parallelle MERGE -> Batching (1 item ad gangen)
+  * dublet-noder for Category/Cuisine/Tag -> unikke constraints + genimport
+  * agenten sendte dansk til graph_search -> feltet omdøbt (se ovenfor)
